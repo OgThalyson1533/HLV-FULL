@@ -96,7 +96,7 @@ async function carregarKPIs() {
 }
 
 async function carregarPipelineResumo() {
-  const { data } = await supabase.from('matriculas').select('status').neq('status', null);
+  const { data } = await supabase.from('matriculas').select('status').not('status', 'is', null);
   const counts = {};
   (data || []).forEach(m => { counts[m.status] = (counts[m.status] || 0) + 1; });
   const total = Object.values(counts).reduce((s, v) => s + v, 0);
@@ -175,7 +175,7 @@ async function carregarFinMensal() {
 }
 
 async function carregarCursosPopulares() {
-  const { data } = await supabase.from('matriculas').select('curso_id, cursos(nome)').eq('ativo', true).limit(500);
+  const { data } = await supabase.from('matriculas').select('curso_id, cursos(nome)').limit(500);
   // Agrupar manualmente
   const map = {};
   (data || []).forEach(m => {

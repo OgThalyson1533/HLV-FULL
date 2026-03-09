@@ -248,10 +248,11 @@ function gerarHTMLCertificado(cert, aluno, curso, turma, opts) {
 *,*::before,*::after{margin:0;padding:0;box-sizing:border-box}
 html,body{width:100%;background:#d0d0d0;font-family:'Inter',sans-serif}
 @media print{
-  html,body{background:transparent}
+  html,body{background:transparent;width:297mm;height:210mm;overflow:hidden}
   @page{size:A4 landscape;margin:0}
   .no-print{display:none!important}
-  .cert{box-shadow:none!important}
+  .cert{box-shadow:none!important;page-break-after:avoid;page-break-inside:avoid}
+  .wrap{padding:0;min-height:0}
   body{padding:0!important}
 }
 .topbar{
@@ -267,7 +268,7 @@ html,body{width:100%;background:#d0d0d0;font-family:'Inter',sans-serif}
 .btn-ghost{background:rgba(255,255,255,0.1);color:#fff}
 .btn:hover{opacity:0.85}
 .wrap{padding:56px 20px 30px;display:flex;justify-content:center}
-/* CERTIFICADO */
+/* CERTIFICADO — posição absoluta garante 1 página exata */
 .cert{
   width:297mm;height:210mm;
   background:${bgCert};
@@ -285,84 +286,85 @@ html,body{width:100%;background:#d0d0d0;font-family:'Inter',sans-serif}
 /* Marca d'água */
 .wm{
   position:absolute;top:50%;left:50%;transform:translate(-50%,-50%) rotate(-22deg);
-  font-family:'Playfair Display',serif;font-size:88pt;font-weight:700;
+  font-family:'Playfair Display',serif;font-size:72pt;font-weight:700;
   letter-spacing:10px;color:${accent}05;white-space:nowrap;z-index:1;
   text-transform:uppercase;pointer-events:none;
 }
 /* Cantos */
-.corner{position:absolute;width:20mm;height:20mm;border-color:${accent};border-style:solid;opacity:0.45;z-index:3}
-.tl{top:12mm;left:18mm;border-width:2px 0 0 2px}
-.tr{top:12mm;right:9mm;border-width:2px 2px 0 0}
-.bl{bottom:12mm;left:18mm;border-width:0 0 2px 2px}
-.br{bottom:12mm;right:9mm;border-width:0 2px 2px 0}
-/* Corpo */
+.corner{position:absolute;width:17mm;height:17mm;border-color:${accent};border-style:solid;opacity:0.45;z-index:3}
+.tl{top:11mm;left:17mm;border-width:2px 0 0 2px}
+.tr{top:11mm;right:8mm;border-width:2px 2px 0 0}
+.bl{bottom:11mm;left:17mm;border-width:0 0 2px 2px}
+.br{bottom:11mm;right:8mm;border-width:0 2px 2px 0}
+/* Corpo — posição ABSOLUTA: nunca extrapola a página */
 .body{
-  position:relative;z-index:4;
-  margin:13mm 14mm 11mm 26mm;
-  height:calc(210mm - 24mm);
-  display:flex;flex-direction:column;
+  position:absolute;
+  top:12mm;bottom:10mm;left:23mm;right:12mm;
+  z-index:4;display:flex;flex-direction:column;
+  overflow:hidden;
 }
 /* Cabeçalho */
 .hdr{
   display:flex;justify-content:space-between;align-items:flex-start;
-  margin-bottom:4mm;padding-bottom:3mm;
-  border-bottom:1px solid ${accent}22;
+  margin-bottom:3mm;padding-bottom:2.5mm;
+  border-bottom:1px solid ${accent}22;flex-shrink:0;
 }
 .logo-area{display:flex;align-items:center;gap:3mm}
-.escola-nome{font-size:10pt;font-weight:700;letter-spacing:1.5px;text-transform:uppercase;color:${accent}}
-.escola-sub{font-size:7pt;color:${muted};letter-spacing:0.5px;margin-top:0.5mm}
-.escola-cnpj{font-size:6.5pt;color:${muted};margin-top:0.5mm;font-family:monospace}
+.escola-nome{font-size:8.5pt;font-weight:700;letter-spacing:1.5px;text-transform:uppercase;color:${accent}}
+.escola-sub{font-size:6pt;color:${muted};letter-spacing:0.5px;margin-top:0.3mm}
+.escola-cnpj{font-size:5.5pt;color:${muted};margin-top:0.3mm;font-family:monospace}
 .nr-badge{
   background:${accent}15;border:1.5px solid ${accent}45;
-  padding:2mm 5mm;border-radius:2mm;
-  font-size:9pt;color:${accent};font-weight:700;letter-spacing:1.5px;text-align:center;
+  padding:1.5mm 4mm;border-radius:2mm;
+  font-size:8pt;color:${accent};font-weight:700;letter-spacing:1.5px;text-align:center;
 }
-.nr-label{font-size:6pt;color:${muted};letter-spacing:0.5px;margin-bottom:1mm;text-align:center}
-/* Centro */
+.nr-label{font-size:5.5pt;color:${muted};letter-spacing:0.5px;margin-bottom:0.8mm;text-align:center}
+/* Centro — flex:1 preenche espaço disponível */
 .center{
   flex:1;display:flex;flex-direction:column;
   align-items:center;justify-content:center;text-align:center;
-  padding:0 5mm;
+  padding:0 4mm;overflow:hidden;
 }
-.pre-title{font-size:7.5pt;letter-spacing:5px;text-transform:uppercase;color:${muted};margin-bottom:1mm}
+.pre-title{font-size:6.5pt;letter-spacing:5px;text-transform:uppercase;color:${muted};margin-bottom:0.8mm}
 .main-title{
   font-family:'Playfair Display',serif;
-  font-size:30pt;letter-spacing:6px;text-transform:uppercase;
-  color:${accent};line-height:1;margin-bottom:0.5mm;
+  font-size:26pt;letter-spacing:5px;text-transform:uppercase;
+  color:${accent};line-height:1;margin-bottom:0.4mm;
 }
-.sub-title{font-size:7pt;letter-spacing:3px;color:${muted};text-transform:uppercase;margin-bottom:5mm}
-.confere{font-size:9pt;color:${muted};margin-bottom:2mm}
+.sub-title{font-size:6pt;letter-spacing:3px;color:${muted};text-transform:uppercase;margin-bottom:3.5mm}
+.confere{font-size:8pt;color:${muted};margin-bottom:1.5mm}
 .nome-aluno{
   font-family:'Playfair Display',serif;
-  font-size:24pt;font-style:italic;color:${nomeColor};
-  margin-bottom:1mm;display:inline-block;
+  font-size:21pt;font-style:italic;color:${nomeColor};
+  margin-bottom:0.8mm;display:inline-block;
 }
-.nome-sep{width:80%;height:1.5px;background:${accent}45;margin:2mm auto 0}
-.cpf{font-size:7.5pt;color:${muted};margin-bottom:4mm;letter-spacing:0.5px}
-.curso-intro{font-size:8.5pt;color:${muted};margin-bottom:1.5mm;margin-top:4mm}
+.nome-sep{width:75%;height:1px;background:${accent}40;margin:1.5mm auto 0}
+.cpf{font-size:6.5pt;color:${muted};margin-bottom:3mm;letter-spacing:0.5px}
+.curso-intro{font-size:7.5pt;color:${muted};margin-bottom:1mm;margin-top:3mm}
 .curso-nome{
   font-family:'Playfair Display',serif;
-  font-size:15pt;color:${accent};margin-bottom:2mm;font-weight:700;
+  font-size:13pt;color:${accent};margin-bottom:1.5mm;font-weight:700;
 }
-.detalhes{font-size:7.5pt;color:${muted};letter-spacing:0.5px}
-.txt-extra{font-size:7pt;color:${muted};margin-top:3mm;font-style:italic;max-width:200mm;line-height:1.6}
-/* Rodapé */
+.detalhes{font-size:6.5pt;color:${muted};letter-spacing:0.4px}
+.txt-extra{font-size:6pt;color:${muted};margin-top:2mm;font-style:italic;max-width:200mm;line-height:1.5}
+/* Rodapé — flex-shrink:0 garante que fique sempre visível */
 .footer{
   display:grid;grid-template-columns:1fr auto 1fr;
-  align-items:end;gap:10mm;
-  padding-top:4mm;border-top:1px solid ${accent}22;
+  align-items:end;gap:8mm;
+  padding-top:3mm;border-top:1px solid ${accent}22;
+  flex-shrink:0;
 }
-.dados-emissao{font-size:7pt;color:${muted};line-height:1.8}
-.cod{font-family:monospace;font-size:8.5pt;color:${accent};font-weight:700}
+.dados-emissao{font-size:6.5pt;color:${muted};line-height:1.7}
+.cod{font-family:monospace;font-size:7.5pt;color:${accent};font-weight:700}
 .qr-area{text-align:center}
-.qr-img{width:22mm;height:22mm;display:block;margin:0 auto;border:1.5px solid ${accent}30;border-radius:2mm;padding:1mm;background:#fff}
-.qr-label{font-size:5.5pt;color:${muted};margin-top:1mm;letter-spacing:0.3px}
-.qr-url{font-size:5pt;color:${accent};margin-top:0.5mm;word-break:break-all;max-width:28mm}
+.qr-img{width:20mm;height:20mm;display:block;margin:0 auto;border:1px solid ${accent}25;border-radius:2mm;padding:1mm;background:#fff}
+.qr-label{font-size:5pt;color:${muted};margin-top:0.8mm;letter-spacing:0.3px}
+.qr-url{font-size:4.5pt;color:${accent};margin-top:0.3mm;word-break:break-all;max-width:26mm}
 .assin{text-align:center}
-.assin-linha{width:48mm;height:1px;background:${accent}40;margin:0 auto 2mm}
-.assin-nome{font-size:8.5pt;color:${txtMain};font-weight:600}
-.assin-cargo{font-size:7pt;color:${muted}}
-.assin-escola{font-size:6.5pt;color:${accent};margin-top:0.5mm}
+.assin-linha{width:44mm;height:1px;background:${accent}40;margin:0 auto 1.5mm}
+.assin-nome{font-size:8pt;color:${txtMain};font-weight:600}
+.assin-cargo{font-size:6.5pt;color:${muted}}
+.assin-escola{font-size:6pt;color:${accent};margin-top:0.3mm}
 </style>
 </head>
 <body>

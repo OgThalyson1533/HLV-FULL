@@ -217,7 +217,31 @@ function abrirModal(aluno = null) {
   backdrop.innerHTML = `<div class="modal modal-lg">
     <div class="modal-header"><h2>${aluno ? 'Editar Aluno' : 'Novo Aluno'}</h2>
       <button class="btn-icon" id="fc-a"><span class="material-symbols-rounded">close</span></button></div>
-    <div class="modal-body"><div class="form-grid">
+    <div class="modal-body" style="padding:0">
+      ${!aluno ? `
+      <!-- Aba de consulta (só no cadastro novo) -->
+      <div style="border-bottom:1px solid var(--border-default);padding:0 20px;background:var(--bg-elevated)">
+        <div style="display:flex;gap:0">
+          <button class="tab-btn active" data-mtab="consulta" style="padding:10px 16px;font-size:12px">🔍 Verificar Cadastro Existente</button>
+          <button class="tab-btn" data-mtab="form" style="padding:10px 16px;font-size:12px">✏️ Novo Cadastro</button>
+        </div>
+      </div>
+      <!-- Painel de consulta -->
+      <div id="mtab-consulta" style="padding:20px">
+        <p style="font-size:13px;color:var(--text-secondary);margin-bottom:16px">
+          Antes de cadastrar, verifique se o aluno já existe no sistema pelo CPF ou nome.
+        </p>
+        <div style="display:flex;gap:8px;margin-bottom:16px">
+          <input id="busca-cpf-nome" placeholder="Digite o CPF (000.000.000-00) ou parte do nome..." style="flex:1;padding:10px 14px;background:var(--bg-overlay);border:1px solid var(--border-default);border-radius:var(--radius-md);color:var(--text-primary);font-size:13px"/>
+          <button class="btn btn-primary" id="btn-consultar-aluno">
+            <span class="material-symbols-rounded" style="font-size:14px">search</span> Buscar
+          </button>
+        </div>
+        <div id="resultado-consulta"></div>
+      </div>
+      <!-- Painel de formulário (oculto inicialmente) -->
+      <div id="mtab-form" style="display:none;padding:20px">` : `<div style="padding:20px">`}
+      <div class="form-grid">
       <div class="form-group full"><label>Nome Completo *</label><input id="a-nome" value="${escapeHtml(v.nome||'')}" placeholder="Nome completo"/></div>
       <div class="form-group"><label>CPF</label><input id="a-cpf" value="${escapeHtml(v.cpf||'')}" placeholder="000.000.000-00"/></div>
       <div class="form-group"><label>RG</label><input id="a-rg" value="${escapeHtml(v.rg||'')}"/></div>
@@ -237,24 +261,127 @@ function abrirModal(aluno = null) {
       <div class="form-group"><label>Cidade</label><input id="a-cidade" value="${escapeHtml(v.cidade||'')}"/></div>
       <div class="form-group"><label>Estado</label><input id="a-estado" value="${escapeHtml(v.estado||'')}" maxlength="2"/></div>
       <div class="form-group full"><label>Observações</label><textarea id="a-obs">${escapeHtml(v.observacoes||'')}</textarea></div>
-    </div></div>
-    <div class="modal-footer">
+      </div>
+      ${!aluno ? '</div></div>' : '</div>'}
+    </div>
+    <div class="modal-footer" id="footer-modal-aluno">
       <button class="btn btn-secondary" id="fc-a2">Cancelar</button>
-      <button class="btn btn-primary" id="salvar-aluno"><span class="material-symbols-rounded">save</span> Salvar</button>
+      ${aluno ? `<button class="btn btn-primary" id="salvar-aluno"><span class="material-symbols-rounded">save</span> Salvar</button>` : ''}
     </div></div>`;
   document.body.appendChild(backdrop);
-  // Vincular busca automática de CEP
+
+  // CEP
   import('../js/cep.js').then(({ vincularCEP }) => vincularCEP(backdrop.querySelector('#a-cep'), {
     logradouro: backdrop.querySelector('#a-endereco'),
     bairro:     backdrop.querySelector('#a-bairro'),
     cidade:     backdrop.querySelector('#a-cidade'),
     estado:     backdrop.querySelector('#a-estado'),
   }));
+
   const fechar = () => backdrop.remove();
   backdrop.querySelector('#fc-a').addEventListener('click', fechar);
   backdrop.querySelector('#fc-a2').addEventListener('click', fechar);
   backdrop.addEventListener('click', e => { if (e.target === backdrop) fechar(); });
-  backdrop.querySelector('#salvar-aluno').addEventListener('click', async () => {
+
+  // ── Lógica das abas no modal de novo aluno ──
+  if (!aluno) {
+    backdrop.querySelectorAll('[data-mtab]').forEach(btn => {
+      btn.addEventListener('click', () => {
+        backdrop.querySelectorAll('[data-mtab]').forEach(b => b.classList.remove('active'));
+        btn.classList.add('active');
+        const tab = btn.dataset.mtab;
+        backdrop.querySelector('#mtab-consulta').style.display = tab === 'consulta' ? 'block' : 'none';
+        backdrop.querySelector('#mtab-form').style.display = tab === 'form' ? 'block' : 'none';
+        // Mostrar/ocultar botão Salvar
+        const footer = backdrop.querySelector('#footer-modal-aluno');
+        const salvarBtn = footer.querySelector('#salvar-aluno');
+        if (tab === 'form') {
+          if (!salvarBtn) {
+            const btn2 = document.createElement('button');
+            btn2.className = 'btn btn-primary'; btn2.id = 'salvar-aluno';
+            btn2.innerHTML = '<span class="material-symbols-rounded">save</span> Salvar';
+            footer.appendChild(btn2);
+            btn2.addEventListener('click', salvarHandler);
+          }
+        } else {
+          if (salvarBtn) salvarBtn.remove();
+        }
+      });
+    });
+
+    // Consulta por CPF / nome
+    const doConsulta = async () => {
+      const termo = backdrop.querySelector('#busca-cpf-nome').value.trim();
+      if (!termo || termo.length < 3) { mostrarToast('Digite ao menos 3 caracteres', 'warning'); return; }
+      const resultado = backdrop.querySelector('#resultado-consulta');
+      resultado.innerHTML = `<div style="color:var(--text-muted);font-size:13px">🔍 Buscando...</div>`;
+      // Busca por CPF exato ou nome parcial
+      const { data } = await supabase.from('alunos')
+        .select('id,nome,cpf,email,telefone,whatsapp')
+        .or(`cpf.eq.${termo},nome.ilike.%${termo}%`)
+        .eq('ativo', true)
+        .limit(8);
+      if (!data?.length) {
+        resultado.innerHTML = `
+          <div style="padding:16px;background:var(--bg-overlay);border-radius:8px;text-align:center">
+            <div style="font-size:13px;color:var(--text-secondary);margin-bottom:12px">
+              ✅ Nenhum aluno encontrado com esse CPF/nome.<br>
+              <span style="color:var(--text-muted);font-size:12px">Você pode prosseguir com o cadastro.</span>
+            </div>
+            <button class="btn btn-primary" id="btn-ir-form">
+              <span class="material-symbols-rounded" style="font-size:14px">person_add</span> Cadastrar Novo Aluno
+            </button>
+          </div>`;
+        backdrop.querySelector('#btn-ir-form').addEventListener('click', () => {
+          backdrop.querySelector('[data-mtab="form"]').click();
+        });
+        return;
+      }
+      resultado.innerHTML = `
+        <div style="margin-bottom:8px;font-size:12px;color:var(--text-muted)">${data.length} aluno(s) encontrado(s):</div>
+        <div style="display:flex;flex-direction:column;gap:8px">
+          ${data.map(a => `
+            <div style="padding:12px 16px;background:var(--bg-overlay);border:1px solid var(--border-default);border-radius:8px;display:flex;align-items:center;justify-content:space-between;gap:12px">
+              <div>
+                <div style="font-weight:600;font-size:13px">${escapeHtml(a.nome)}</div>
+                <div style="font-size:11px;color:var(--text-muted);margin-top:2px">
+                  ${a.cpf ? `CPF: ${escapeHtml(a.cpf)}` : ''}
+                  ${a.cpf && (a.whatsapp||a.email) ? ' · ' : ''}
+                  ${escapeHtml(a.whatsapp||a.email||'')}
+                </div>
+              </div>
+              <div style="display:flex;gap:8px;flex-shrink:0">
+                <button class="btn btn-sm btn-secondary btn-abrir-ficha" data-id="${a.id}" style="font-size:11px">
+                  <span class="material-symbols-rounded" style="font-size:12px">person</span> Ver Ficha
+                </button>
+                <button class="btn btn-sm btn-primary btn-editar-exist" data-id="${a.id}" style="font-size:11px">
+                  <span class="material-symbols-rounded" style="font-size:12px">edit</span> Editar
+                </button>
+              </div>
+            </div>`).join('')}
+        </div>
+        <div style="margin-top:12px;padding:10px 14px;background:var(--bg-elevated);border-radius:8px;font-size:12px;color:var(--text-muted)">
+          Não é nenhum deles? <button class="btn btn-sm btn-secondary" id="btn-ir-form2" style="margin-left:8px;font-size:11px">
+            <span class="material-symbols-rounded" style="font-size:12px">person_add</span> Cadastrar mesmo assim
+          </button>
+        </div>`;
+
+      backdrop.querySelectorAll('.btn-abrir-ficha').forEach(b => {
+        b.addEventListener('click', () => { fechar(); abrirFicha(b.dataset.id); });
+      });
+      backdrop.querySelectorAll('.btn-editar-exist').forEach(b => {
+        b.addEventListener('click', () => { fechar(); editarAluno(b.dataset.id); });
+      });
+      backdrop.querySelector('#btn-ir-form2')?.addEventListener('click', () => {
+        backdrop.querySelector('[data-mtab="form"]').click();
+      });
+    };
+
+    backdrop.querySelector('#btn-consultar-aluno').addEventListener('click', doConsulta);
+    backdrop.querySelector('#busca-cpf-nome').addEventListener('keydown', e => { if (e.key === 'Enter') doConsulta(); });
+  }
+
+  const salvarHandler = async () => {
     const nome = backdrop.querySelector('#a-nome').value.trim();
     if (!nome) { mostrarToast('Nome é obrigatório', 'warning'); return; }
     const payload = {
@@ -277,7 +404,10 @@ function abrirModal(aluno = null) {
       mostrarToast(aluno ? 'Aluno atualizado!' : 'Aluno cadastrado!', 'success');
       fechar(); carregar(); carregarStats();
     } catch (e) { mostrarToast(traduzirErro(e), 'error'); }
-  });
+  };
+
+  // Botão salvar (edição direta)
+  backdrop.querySelector('#salvar-aluno')?.addEventListener('click', salvarHandler);
 }
 
 async function editarAluno(id) {

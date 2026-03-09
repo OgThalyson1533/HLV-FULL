@@ -1,7 +1,7 @@
 // modules/financeiro.js — Gestão Financeira
 import { supabase, mostrarToast } from '../js/app.js';
 
-let state = { pagina: 1, filtroStatus: '', filtroTipo: '', busca: '', matriculas: [] };
+let state = { pagina: 1, filtroStatus: 'pendente', filtroTipo: '', busca: '', matriculas: [] };
 const PAGE_SIZE = 25;
 
 export async function renderFinanceiro() {
@@ -20,7 +20,7 @@ export async function renderFinanceiro() {
         <div class="table-search"><input type="text" id="busca-fin" placeholder="Buscar aluno ou recibo..." /></div>
         <select id="filtro-status-fin" style="width:140px">
           <option value="">Todos</option>
-          <option value="pendente">Pendente</option>
+          <option value="pendente" selected>Pendente</option>
           <option value="recebido">Recebido</option>
           <option value="atraso">Em Atraso</option>
           <option value="cancelado">Cancelado</option>
@@ -149,39 +149,210 @@ window._confirmarPgto = async id => {
 window._editPgto = async id => { const { data } = await supabase.from('pagamentos').select('*').eq('id', id).single(); abrirModal(data); };
 
 window._verRecibo = async id => {
-  const { data: p } = await supabase.from('pagamentos').select('*, alunos(nome,cpf), matriculas(*, cursos(nome))').eq('id', id).single();
-  const backdrop = document.createElement('div');
-  backdrop.className = 'modal-backdrop';
-  backdrop.innerHTML = `<div class="modal">
-    <div class="modal-header"><h2>Recibo Nº ${p.numero_recibo}</h2>
-      <button class="btn-icon" id="fc-rec"><span class="material-symbols-rounded">close</span></button></div>
-    <div class="modal-body" id="recibo-content">
-      <div class="recibo-box">
-        <div class="recibo-header"><span class="material-symbols-rounded" style="font-size:32px;color:var(--accent)">school</span><div><strong style="font-size:16px">TrainOS</strong><br><span class="text-sm text-muted">Escola de Treinamentos</span></div></div>
-        <div class="section-divider"></div>
-        <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;font-size:13px">
-          <div><div class="text-xs text-muted">Aluno</div><strong>${p.alunos?.nome}</strong></div>
-          <div><div class="text-xs text-muted">CPF</div>${p.alunos?.cpf || '—'}</div>
-          <div><div class="text-xs text-muted">Curso</div>${p.matriculas?.cursos?.nome || '—'}</div>
-          <div><div class="text-xs text-muted">Recibo Nº</div><span class="mono">${p.numero_recibo}</span></div>
-          <div><div class="text-xs text-muted">Valor</div><strong style="color:var(--success);font-size:16px">R$ ${Number(p.valor_recebido || p.valor_cobrado).toFixed(2)}</strong></div>
-          <div><div class="text-xs text-muted">Data Recebimento</div>${fmtData(p.data_recebimento)}</div>
-          <div><div class="text-xs text-muted">Forma de Pagamento</div>${tipoLabel[p.tipo_pagamento] || '—'}</div>
-          ${p.observacoes ? `<div class="full"><div class="text-xs text-muted">Obs.</div>${p.observacoes}</div>` : ''}
-        </div>
-        <div class="section-divider"></div>
-        <div style="text-align:center;font-size:11px;color:var(--text-tertiary)">Documento emitido em ${new Date().toLocaleDateString('pt-BR')}</div>
-      </div>
+  const { data: p } = await supabase.from('pagamentos')
+    .select('*, alunos(nome,cpf,telefone,whatsapp), matriculas(*, cursos(nome,norma_regulamentadora))')
+    .eq('id', id).single();
+  if (!p) return;
+
+  // Carregar configs white-label
+  const { getConfig } = await import('../js/supabase.js');
+  const { getTema } = await import('../js/theme.js');
+  const [nomeEscola, logoUrl, cnpj, enderecoEscola, telefoneEscola, emailEscola, siteEscola] = await Promise.all([
+    getConfig('nome_escola', 'TrainOS'),
+    getConfig('logo_url', ''),
+    getConfig('cnpj', ''),
+    getConfig('endereco', ''),
+    getConfig('telefone', ''),
+    getConfig('email', ''),
+    getConfig('site', ''),
+  ]);
+  const tema = getTema();
+  const accent = tema.cor_primaria || '#00d4ff';
+
+  const tipoLabel = { dinheiro:'Dinheiro', pix:'PIX', cartao_debito:'Débito', cartao_credito:'Crédito', boleto:'Boleto', transferencia:'TED/DOC', faturado_empresa:'Faturado' };
+  const fmtData = d => d ? new Date(d.includes('T')?d:d+'T00:00:00').toLocaleDateString('pt-BR') : '—';
+  const logoTag = logoUrl
+    ? `<img src="${logoUrl}" style="height:48px;max-width:160px;object-fit:contain" alt="${nomeEscola}" onerror="this.style.display='none'"/>`
+    : `<div style="font-size:22px;font-weight:800;color:${accent};letter-spacing:2px">${nomeEscola}</div>`;
+
+  const valorFmt = v => Number(v||0).toLocaleString('pt-BR',{style:'currency',currency:'BRL'});
+
+  const htmlRecibo = `<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8"/>
+<title>Recibo ${p.numero_recibo}</title>
+<style>
+*,*::before,*::after{margin:0;padding:0;box-sizing:border-box}
+body{font-family:'Segoe UI',Arial,sans-serif;background:#f0f2f5;color:#1a1a2e}
+@media print{
+  body{background:#fff}
+  @page{size:A4 portrait;margin:15mm 20mm}
+  .no-print{display:none!important}
+  .recibo-card{box-shadow:none!important;border:none!important;max-width:100%!important}
+}
+.topbar{
+  position:fixed;top:0;left:0;right:0;
+  background:#1a1a2e;padding:10px 24px;
+  display:flex;align-items:center;justify-content:space-between;
+  box-shadow:0 2px 12px rgba(0,0,0,0.3);z-index:99;
+}
+.topbar-title{color:#fff;font-size:13px;font-weight:500}
+.topbar-btns{display:flex;gap:8px}
+.btn{padding:8px 18px;border:none;border-radius:6px;cursor:pointer;font-size:13px;font-weight:600}
+.btn-p{background:${accent};color:#fff}
+.btn-g{background:rgba(255,255,255,0.12);color:#fff}
+.btn:hover{opacity:.85}
+.page-wrap{padding:56px 24px 30px;display:flex;justify-content:center}
+.recibo-card{
+  background:#fff;width:100%;max-width:680px;
+  border-radius:12px;box-shadow:0 4px 24px rgba(0,0,0,0.12);
+  overflow:hidden;
+}
+/* Topo colorido */
+.recibo-header{
+  background:linear-gradient(135deg,${accent},${tema.cor_secundaria||accent});
+  padding:24px 32px;
+  display:flex;align-items:center;justify-content:space-between;
+}
+.recibo-header-right{text-align:right}
+.recibo-num{color:rgba(255,255,255,0.7);font-size:11px;letter-spacing:2px;text-transform:uppercase}
+.recibo-num-val{color:#fff;font-size:20px;font-weight:800;letter-spacing:1px;font-family:monospace}
+.recibo-status{
+  display:inline-block;margin-top:6px;padding:3px 10px;
+  background:rgba(255,255,255,0.2);border-radius:20px;
+  color:#fff;font-size:11px;font-weight:600;letter-spacing:1px;text-transform:uppercase;
+}
+/* Corpo */
+.recibo-body{padding:28px 32px}
+/* Seção */
+.section-title{
+  font-size:10px;font-weight:700;letter-spacing:2px;text-transform:uppercase;
+  color:${accent};margin-bottom:12px;padding-bottom:6px;
+  border-bottom:2px solid ${accent}20;
+}
+.info-grid{display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-bottom:20px}
+.info-item .label{font-size:10px;color:#888;letter-spacing:0.5px;text-transform:uppercase;margin-bottom:3px}
+.info-item .value{font-size:13px;color:#1a1a2e;font-weight:500}
+.info-item.full{grid-column:1/-1}
+/* Valor destaque */
+.valor-box{
+  background:linear-gradient(135deg,${accent}12,${accent}05);
+  border:2px solid ${accent}30;border-radius:10px;
+  padding:16px 24px;margin:20px 0;
+  display:flex;align-items:center;justify-content:space-between;
+}
+.valor-label{font-size:11px;color:#888;text-transform:uppercase;letter-spacing:1px}
+.valor-num{font-size:28px;font-weight:800;color:${accent}}
+/* Divisor */
+.divider{height:1px;background:#f0f0f0;margin:16px 0}
+/* Rodapé */
+.recibo-footer{
+  background:#f8f9fc;padding:16px 32px;
+  display:flex;align-items:center;justify-content:space-between;
+  border-top:1px solid #eee;
+}
+.footer-escola{font-size:11px;color:#888}
+.footer-escola strong{color:#444;display:block;margin-bottom:2px}
+.footer-assin{text-align:center}
+.assin-linha{width:120px;height:1px;background:#bbb;margin:0 auto 6px}
+.assin-nome{font-size:10px;color:#888}
+/* Badge válido */
+.badge-valido{
+  display:inline-flex;align-items:center;gap:4px;
+  padding:4px 10px;border-radius:20px;font-size:11px;font-weight:600;
+  background:#dcfce7;color:#166534;
+}
+</style>
+</head>
+<body>
+<div class="topbar no-print">
+  <span class="topbar-title">Recibo ${p.numero_recibo||''}</span>
+  <div class="topbar-btns">
+    <button class="btn btn-g" onclick="window.close()">✕ Fechar</button>
+    <button class="btn btn-p" onclick="window.print()">🖨️ Imprimir / Salvar PDF</button>
+  </div>
+</div>
+<div class="page-wrap">
+<div class="recibo-card">
+
+  <!-- Cabeçalho colorido -->
+  <div class="recibo-header">
+    <div>${logoTag}</div>
+    <div class="recibo-header-right">
+      <div class="recibo-num">Recibo</div>
+      <div class="recibo-num-val">${p.numero_recibo||'—'}</div>
+      <div class="recibo-status">${p.status==='recebido'?'✓ Pago':p.status==='pendente'?'⏳ Pendente':'⚠ '+p.status}</div>
     </div>
-    <div class="modal-footer">
-      <button class="btn btn-secondary" id="fc-rec2">Fechar</button>
-      <button class="btn btn-primary" onclick="window.print()"><span class="material-symbols-rounded">print</span> Imprimir</button>
-    </div></div>`;
-  document.body.appendChild(backdrop);
-  const fechar = () => backdrop.remove();
-  document.getElementById('fc-rec').onclick = fechar;
-  document.getElementById('fc-rec2').onclick = fechar;
-  backdrop.addEventListener('click', e => { if (e.target === backdrop) fechar(); });
+  </div>
+
+  <div class="recibo-body">
+
+    <!-- Valor em destaque -->
+    <div class="valor-box">
+      <div>
+        <div class="valor-label">Valor ${p.status==='recebido'?'Recebido':'Cobrado'}</div>
+        <div class="valor-num">${valorFmt(p.status==='recebido'?p.valor_recebido:p.valor_cobrado)}</div>
+      </div>
+      ${p.status==='recebido'?`<span class="badge-valido"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M20 6L9 17l-5-5"/></svg> Pagamento Confirmado</span>`:''}
+    </div>
+
+    <!-- Dados do Aluno -->
+    <div class="section-title">Dados do Aluno</div>
+    <div class="info-grid">
+      <div class="info-item full"><div class="label">Nome</div><div class="value" style="font-size:15px;font-weight:700">${p.alunos?.nome||'—'}</div></div>
+      ${p.alunos?.cpf?`<div class="info-item"><div class="label">CPF</div><div class="value" style="font-family:monospace">${p.alunos.cpf}</div></div>`:''}
+      ${p.alunos?.whatsapp||p.alunos?.telefone?`<div class="info-item"><div class="label">Contato</div><div class="value">${p.alunos?.whatsapp||p.alunos?.telefone}</div></div>`:''}
+    </div>
+
+    <!-- Dados do Curso -->
+    ${p.matriculas?.cursos?.nome?`
+    <div class="section-title">Curso</div>
+    <div class="info-grid" style="margin-bottom:20px">
+      <div class="info-item full"><div class="label">Curso</div><div class="value">${p.matriculas.cursos.nome}</div></div>
+      ${p.matriculas.cursos.norma_regulamentadora?`<div class="info-item"><div class="label">Norma</div><div class="value">${p.matriculas.cursos.norma_regulamentadora}</div></div>`:''}
+    </div>`:''}
+
+    <!-- Dados do Pagamento -->
+    <div class="section-title">Detalhes do Pagamento</div>
+    <div class="info-grid">
+      <div class="info-item"><div class="label">Valor Cobrado</div><div class="value">${valorFmt(p.valor_cobrado)}</div></div>
+      ${p.desconto>0?`<div class="info-item"><div class="label">Desconto</div><div class="value" style="color:#dc2626">- ${valorFmt(p.desconto)}</div></div>`:''}
+      <div class="info-item"><div class="label">Forma de Pagamento</div><div class="value">${tipoLabel[p.tipo_pagamento]||p.tipo_pagamento||'—'}</div></div>
+      ${p.data_vencimento?`<div class="info-item"><div class="label">Vencimento</div><div class="value">${fmtData(p.data_vencimento)}</div></div>`:''}
+      ${p.data_recebimento?`<div class="info-item"><div class="label">Data do Recebimento</div><div class="value" style="color:#166534;font-weight:600">${fmtData(p.data_recebimento)}</div></div>`:''}
+      ${p.observacoes?`<div class="info-item full"><div class="label">Observações</div><div class="value">${p.observacoes}</div></div>`:''}
+    </div>
+
+    <div class="divider"></div>
+    <div style="font-size:11px;color:#aaa;text-align:center">
+      Documento emitido em ${new Date().toLocaleDateString('pt-BR')} às ${new Date().toLocaleTimeString('pt-BR',{hour:'2-digit',minute:'2-digit'})}
+    </div>
+
+  </div>
+
+  <!-- Rodapé -->
+  <div class="recibo-footer">
+    <div class="footer-escola">
+      <strong>${nomeEscola}</strong>
+      ${cnpj?`CNPJ: ${cnpj}<br>`:''}
+      ${enderecoEscola||''}${enderecoEscola&&telefoneEscola?' · ':''}${telefoneEscola||''}
+      ${emailEscola?`<br>${emailEscola}`:''}
+    </div>
+    <div class="footer-assin">
+      <div class="assin-linha"></div>
+      <div class="assin-nome">${nomeEscola}</div>
+    </div>
+  </div>
+
+</div>
+</div>
+</body></html>`;
+
+  const win = window.open('', '_blank');
+  if (!win) { mostrarToast('Habilite pop-ups para abrir o recibo', 'warning'); return; }
+  win.document.write(htmlRecibo);
+  win.document.close();
 };
 
 async function abrirModal(p = null, modoReceber = false) {

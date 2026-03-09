@@ -7,8 +7,8 @@ import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
 
 // ⚠️ Substitua pelas suas credenciais do projeto Supabase
 // Dashboard → Project Settings → API
-const SUPABASE_URL = 'https://SEU_PROJECT_ID.supabase.co';
-const SUPABASE_ANON_KEY = 'SUA_ANON_PUBLIC_KEY';
+const SUPABASE_URL = 'https://wsfawjiqkeoilcjsehpp.supabase.co';
+const SUPABASE_ANON_KEY = 'sb_publishable_Gp0BJ5frZua339ZuJtiCag_XSbHtgVH';
 
 // Singleton do cliente
 export const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {

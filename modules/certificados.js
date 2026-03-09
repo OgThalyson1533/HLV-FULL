@@ -1,8 +1,8 @@
-// modules/certificados.js v2 — QR Code, White-label, WhatsApp
+// modules/certificados.js v3 — PDF corrigido, QR Code, White-label
 import { supabase, mostrarToast } from '../js/app.js';
 import { fmtData, debounce, emptyState, renderStatCards, renderPaginacao, delegarAcoes, escapeHtml, traduzirErro } from '../js/utils.js';
 import { getTema, gerarCSSCertificado } from '../js/theme.js';
-import { TEMPLATES, abrirModalWhatsApp } from '../js/whatsapp.js';
+import { abrirModalWhatsApp } from '../js/whatsapp.js';
 import { getConfig } from '../js/supabase.js';
 
 let state = { pagina: 1, busca: '', filtroStatus: '' };
@@ -118,201 +118,347 @@ function renderTabela(rows) {
   </tbody></table>`;
 }
 
-// ── Gerar PDF com QR Code e marca adaptativa ───────────────
+// ── Gerar PDF com QR Code e white-label ──────────────────────────────────────
 async function gerarPDF(matriculaId) {
-  const { data: cert } = await supabase.from('certificados')
-    .select('*, alunos(nome,cpf,whatsapp), cursos(nome,carga_horaria_horas,norma_regulamentadora), turmas(data_inicio,data_fim), instrutores(nome)')
-    .eq('matricula_id', matriculaId).single();
-  if (!cert) { mostrarToast('Certificado não encontrado', 'error'); return; }
+  mostrarToast('Gerando certificado...', 'info', 2000);
 
-  const [nomeEscola, assinante, cargoAssinante, textoCert, urlVerificacao, logoUrl] = await Promise.all([
+  // 1. Buscar certificado pela matricula_id
+  const { data: cert, error: certErr } = await supabase
+    .from('certificados')
+    .select('*')
+    .eq('matricula_id', matriculaId)
+    .single();
+
+  if (certErr || !cert) {
+    mostrarToast('Certificado não encontrado. Verifique se foi emitido corretamente.', 'error');
+    console.error('[PDF] Erro ao buscar certificado:', certErr);
+    return;
+  }
+
+  // 2. Buscar dados relacionados em paralelo
+  const [alunoRes, cursoRes] = await Promise.all([
+    supabase.from('alunos').select('nome, cpf, whatsapp, telefone').eq('id', cert.aluno_id).single(),
+    supabase.from('cursos').select('nome, carga_horaria_horas, norma_regulamentadora').eq('id', cert.curso_id).single(),
+  ]);
+
+  const aluno = alunoRes.data;
+  const curso = cursoRes.data;
+
+  if (!aluno || !curso) {
+    mostrarToast('Dados do aluno ou curso não encontrados.', 'error');
+    return;
+  }
+
+  // 3. Buscar turma (opcional)
+  let turma = null;
+  if (cert.turma_id) {
+    const { data: t } = await supabase
+      .from('turmas')
+      .select('data_inicio, data_fim, local')
+      .eq('id', cert.turma_id)
+      .single();
+    turma = t;
+  }
+
+  // 4. Nome do instrutor
+  let instrutorNome = cert.instrutor_nome || '';
+  if (!instrutorNome && cert.turma_id) {
+    const { data: tm } = await supabase
+      .from('turmas')
+      .select('instrutor_id, instrutores(nome)')
+      .eq('id', cert.turma_id)
+      .single();
+    instrutorNome = tm?.instrutores?.nome || '';
+  }
+
+  // 5. Configurações white-label
+  const [nomeEscola, assinante, cargoAssinante, textoCert, urlVerificacao, logoUrl, cnpj, enderecoEscola] = await Promise.all([
     getConfig('nome_escola', 'TrainOS'),
     getConfig('assinante_cert', 'Diretor Técnico'),
     getConfig('cargo_assinante', 'Diretor Técnico'),
     getConfig('texto_cert', ''),
     getConfig('url_verificacao', ''),
     getConfig('logo_url', ''),
+    getConfig('cnpj', ''),
+    getConfig('endereco', ''),
   ]);
 
   const tema = getTema();
   const cores = gerarCSSCertificado();
-  const qrUrl = `https://api.qrserver.com/v1/create-qr-code/?size=100x100&data=${encodeURIComponent((urlVerificacao || 'https://trainos.app/verificar') + '?codigo=' + cert.codigo_verificacao)}&bgcolor=${cores.corFundo.replace('#','')}&color=${tema.cor_primaria.replace('#','')}&margin=2`;
 
-  const htmlCert = gerarHTMLCertificado(cert, { nomeEscola, assinante, cargoAssinante, textoCert, urlVerificacao, logoUrl, qrUrl, cores, tema });
+  // 6. QR Code — URL de verificação pública
+  const baseUrl = (urlVerificacao || window.location.origin + '/verificar').replace(/\/$/, '');
+  const urlCompleta = `${baseUrl}?codigo=${encodeURIComponent(cert.codigo_verificacao)}`;
+
+  // QR via api.qrserver.com (gratuito, sem chave de API)
+  const qrFgColor = tema.cor_primaria.replace('#', '');
+  const qrUrl = `https://api.qrserver.com/v1/create-qr-code/?size=140x140&data=${encodeURIComponent(urlCompleta)}&color=${qrFgColor}&bgcolor=ffffff&margin=4&format=png&ecc=M`;
+
+  // 7. Gerar e abrir HTML
+  const htmlCert = gerarHTMLCertificado(cert, aluno, curso, turma, {
+    nomeEscola, assinante, cargoAssinante, textoCert,
+    urlCompleta, logoUrl, qrUrl, cores, tema,
+    cnpj, enderecoEscola, instrutorNome,
+  });
+
   const win = window.open('', '_blank');
-  if (!win) { mostrarToast('Habilite pop-ups para gerar o PDF', 'warning'); return; }
+  if (!win) {
+    mostrarToast('Pop-ups bloqueados. Habilite-os para gerar o PDF.', 'warning');
+    return;
+  }
   win.document.write(htmlCert);
   win.document.close();
   win.focus();
-  setTimeout(() => win.print(), 800);
+  // Aguarda fontes e imagem do QR carregarem antes de acionar o print
+  win.addEventListener('load', () => setTimeout(() => win.print(), 600));
+  setTimeout(() => { try { win.print(); } catch(e) {} }, 1500);
 }
 
-function gerarHTMLCertificado(cert, { nomeEscola, assinante, cargoAssinante, textoCert, urlVerificacao, logoUrl, qrUrl, cores, tema }) {
-  const { alunos: aluno, cursos: curso, turmas: turma } = cert;
-  const dataEmissao = fmtData(cert.data_emissao);
-  const dataValidade = cert.data_validade ? fmtData(cert.data_validade) : 'Sem validade';
-  const periodo = turma ? `${fmtData(turma.data_inicio)} a ${fmtData(turma.data_fim)}` : dataEmissao;
-  const accentHex = tema.cor_primaria;
-  const accentRgb = hexToRgb(accentHex);
-  const isDark = tema.modo !== 'light';
+function escHtml(s) {
+  return String(s || '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+
+function gerarHTMLCertificado(cert, aluno, curso, turma, opts) {
+  const { nomeEscola, assinante, cargoAssinante, textoCert, urlCompleta, logoUrl, qrUrl, cores, tema, cnpj, enderecoEscola, instrutorNome } = opts;
+
+  const dataEmissao  = fmtData(cert.data_emissao);
+  const dataValidade = cert.data_validade ? fmtData(cert.data_validade) : null;
+  const periodo      = turma ? `${fmtData(turma.data_inicio)} a ${fmtData(turma.data_fim)}` : dataEmissao;
+  const local        = turma?.local || '';
+
+  const accent  = tema.cor_primaria  || '#00d4ff';
+  const sec     = tema.cor_secundaria || accent;
+  const isDark  = tema.modo !== 'light';
+  const bgCert  = isDark ? (tema.cor_fundo || '#0a0f1a') : '#ffffff';
+  const txtMain = isDark ? '#e6edf3' : '#1a1a2e';
+  const muted   = isDark ? 'rgba(230,237,243,0.5)' : '#6c757d';
+  const nomeColor = isDark ? '#ffffff' : '#1a1a2e';
+
+  const logoTag = logoUrl
+    ? `<img src="${escHtml(logoUrl)}" style="height:14mm;max-width:52mm;object-fit:contain" alt="${escHtml(nomeEscola)}" onerror="this.style.display='none'"/>`
+    : `<div style="width:14mm;height:14mm;border-radius:3mm;background:${accent};color:#fff;display:flex;align-items:center;justify-content:center;font-size:18pt;font-weight:700;flex-shrink:0">${escHtml(nomeEscola.charAt(0))}</div>`;
 
   return `<!DOCTYPE html>
 <html lang="pt-BR">
 <head>
-  <meta charset="UTF-8"/>
-  <title>Certificado — ${aluno.nome}</title>
-  <link href="https://fonts.googleapis.com/css2?family=Playfair+Display:ital,wght@0,400;0,700;1,400&family=Inter:wght@300;400;600&display=swap" rel="stylesheet"/>
-  <style>
-    * { margin:0; padding:0; box-sizing:border-box; }
-    body { font-family:'Inter',sans-serif; background:#fff; }
-    @media print { body { margin:0; } @page { size:A4 landscape; margin:0; } .no-print { display:none !important; } }
-    .cert {
-      width:297mm; height:210mm; position:relative; overflow:hidden;
-      background: ${isDark
-        ? `linear-gradient(135deg, ${cores.bgInicio} 0%, ${cores.bgFim} 60%, ${cores.bgInicio} 100%)`
-        : `linear-gradient(135deg, #ffffff 0%, #f0f4ff 50%, #ffffff 100%)`};
-      display:flex; flex-direction:column; align-items:stretch; justify-content:stretch;
-    }
-    /* Decoração lateral com cor da marca */
-    .cert-accent-bar {
-      position:absolute; left:0; top:0; bottom:0; width:12mm;
-      background: linear-gradient(180deg, ${accentHex}, ${tema.cor_secundaria || accentHex});
-    }
-    .cert-accent-bar-r {
-      position:absolute; right:0; top:0; bottom:0; width:4mm;
-      background: ${accentHex}40;
-    }
-    /* Bordas de canto */
-    .cert-corner {
-      position:absolute; width:18mm; height:18mm;
-      border-color:${accentHex}; border-style:solid; opacity:0.6;
-    }
-    .cert-corner.tl { top:10mm; left:18mm; border-width:2px 0 0 2px; }
-    .cert-corner.tr { top:10mm; right:8mm;  border-width:2px 2px 0 0; }
-    .cert-corner.bl { bottom:10mm; left:18mm; border-width:0 0 2px 2px; }
-    .cert-corner.br { bottom:10mm; right:8mm;  border-width:0 2px 2px 0; }
-    /* Fundo pontilhado sutil */
-    .cert-bg-dots {
-      position:absolute; inset:0;
-      background-image:radial-gradient(${accentHex}18 1px, transparent 1px);
-      background-size:12mm 12mm;
-      pointer-events:none;
-    }
-    /* Conteúdo */
-    .cert-body {
-      position:relative; z-index:2;
-      margin: 12mm 16mm 10mm 22mm;
-      display:flex; flex-direction:column; height:calc(100% - 22mm);
-    }
-    .cert-top { display:flex; justify-content:space-between; align-items:flex-start; margin-bottom:4mm; }
-    .cert-logo-area { display:flex; align-items:center; gap:3mm; }
-    .cert-logo-img { height:12mm; object-fit:contain; }
-    .cert-escola { font-size:9pt; font-weight:600; color:${cores.corDestaque}; letter-spacing:1px; text-transform:uppercase; }
-    .cert-escola-sub { font-size:7pt; color:${cores.corMuted}; letter-spacing:0.5px; }
-    .cert-nr-badge {
-      background:${accentHex}20; border:1px solid ${accentHex}40;
-      padding:2mm 4mm; border-radius:2mm; font-size:8pt;
-      color:${accentHex}; font-weight:600; letter-spacing:1px;
-    }
-    /* Centro */
-    .cert-center { flex:1; display:flex; flex-direction:column; align-items:center; justify-content:center; text-align:center; }
-    .cert-certifica { font-size:8pt; letter-spacing:4px; text-transform:uppercase; color:${cores.corMuted}; margin-bottom:2mm; }
-    .cert-title { font-family:'Playfair Display',serif; font-size:26pt; letter-spacing:4px; text-transform:uppercase; color:${accentHex}; line-height:1; margin-bottom:1mm; }
-    .cert-title-sub { font-size:7pt; letter-spacing:3px; color:${cores.corMuted}; text-transform:uppercase; margin-bottom:5mm; }
-    .cert-confere { font-size:9pt; color:${cores.corMuted}; margin-bottom:2mm; }
-    .cert-nome { font-family:'Playfair Display',serif; font-size:22pt; font-style:italic; color:${cores.corNome}; margin-bottom:4mm; position:relative; }
-    .cert-nome::after { content:''; position:absolute; bottom:-2mm; left:50%; transform:translateX(-50%); width:80mm; height:1px; background:${accentHex}50; }
-    .cert-curso-intro { font-size:9pt; color:${cores.corMuted}; margin-bottom:2mm; margin-top:4mm; }
-    .cert-curso { font-family:'Playfair Display',serif; font-size:14pt; color:${accentHex}; margin-bottom:2mm; }
-    .cert-detalhes { font-size:8pt; color:${cores.corMuted}; letter-spacing:0.5px; }
-    .cert-texto-extra { font-size:7.5pt; color:${cores.corMuted}; margin-top:3mm; font-style:italic; max-width:180mm; text-align:center; line-height:1.5; }
-    /* Rodapé */
-    .cert-footer { display:grid; grid-template-columns:1fr auto 1fr; align-items:end; gap:8mm; padding-top:4mm; border-top:1px solid ${accentHex}30; }
-    .cert-codigo-area { font-size:7pt; color:${cores.corMuted}; }
-    .cert-codigo { font-family:monospace; font-size:8pt; color:${accentHex}; font-weight:600; }
-    .cert-qr { width:20mm; height:20mm; border:1px solid ${accentHex}30; border-radius:2mm; padding:1mm; background:white; }
-    .cert-assinatura { text-align:center; }
-    .cert-assin-linha { width:45mm; height:1px; background:${accentHex}40; margin:0 auto 2mm; }
-    .cert-assin-nome { font-size:8pt; color:${cores.corTexto}; font-weight:600; }
-    .cert-assin-cargo { font-size:7pt; color:${cores.corMuted}; }
-    /* Botão de impressão (some ao imprimir) */
-    .print-btn {
-      position:fixed; bottom:20px; right:20px; z-index:999;
-      padding:12px 24px; background:${accentHex}; color:#fff; border:none;
-      border-radius:8px; font-size:14px; cursor:pointer; box-shadow:0 4px 20px ${accentHex}60;
-    }
-    .print-btn:hover { opacity:0.9; }
-  </style>
+<meta charset="UTF-8"/>
+<title>Certificado — ${escHtml(aluno.nome)}</title>
+<link href="https://fonts.googleapis.com/css2?family=Playfair+Display:ital,wght@0,400;0,700;1,400&family=Inter:wght@300;400;500;600&display=swap" rel="stylesheet"/>
+<style>
+*,*::before,*::after{margin:0;padding:0;box-sizing:border-box}
+html,body{width:100%;background:#d0d0d0;font-family:'Inter',sans-serif}
+@media print{
+  html,body{background:transparent}
+  @page{size:A4 landscape;margin:0}
+  .no-print{display:none!important}
+  .cert{box-shadow:none!important}
+  body{padding:0!important}
+}
+.topbar{
+  position:fixed;top:0;left:0;right:0;z-index:999;
+  background:#111827;padding:10px 20px;
+  display:flex;align-items:center;justify-content:space-between;
+  box-shadow:0 2px 12px rgba(0,0,0,0.5);
+}
+.topbar-title{color:#fff;font-size:13px;font-weight:500}
+.topbar-btns{display:flex;gap:8px}
+.btn{padding:8px 18px;border:none;border-radius:6px;cursor:pointer;font-size:13px;font-weight:600}
+.btn-primary{background:${accent};color:#fff}
+.btn-ghost{background:rgba(255,255,255,0.1);color:#fff}
+.btn:hover{opacity:0.85}
+.wrap{padding:56px 20px 30px;display:flex;justify-content:center}
+/* CERTIFICADO */
+.cert{
+  width:297mm;height:210mm;
+  background:${bgCert};
+  position:relative;overflow:hidden;
+  box-shadow:0 8px 40px rgba(0,0,0,0.35);
+  flex-shrink:0;
+}
+/* Barras decorativas */
+.bar-l{position:absolute;left:0;top:0;bottom:0;width:14mm;background:linear-gradient(180deg,${accent},${sec});z-index:2}
+.bar-r{position:absolute;right:0;top:0;bottom:0;width:5mm;background:linear-gradient(180deg,${sec}60,${accent}40);z-index:2}
+.bar-t{position:absolute;top:0;left:14mm;right:5mm;height:3mm;background:linear-gradient(90deg,${accent}80,${sec}40);z-index:2}
+.bar-b{position:absolute;bottom:0;left:14mm;right:5mm;height:2mm;background:${accent}40;z-index:2}
+/* Padrão pontilhado */
+.dots{position:absolute;inset:0;z-index:1;background-image:radial-gradient(${accent}10 1.5px,transparent 1.5px);background-size:18mm 18mm}
+/* Marca d'água */
+.wm{
+  position:absolute;top:50%;left:50%;transform:translate(-50%,-50%) rotate(-22deg);
+  font-family:'Playfair Display',serif;font-size:88pt;font-weight:700;
+  letter-spacing:10px;color:${accent}05;white-space:nowrap;z-index:1;
+  text-transform:uppercase;pointer-events:none;
+}
+/* Cantos */
+.corner{position:absolute;width:20mm;height:20mm;border-color:${accent};border-style:solid;opacity:0.45;z-index:3}
+.tl{top:12mm;left:18mm;border-width:2px 0 0 2px}
+.tr{top:12mm;right:9mm;border-width:2px 2px 0 0}
+.bl{bottom:12mm;left:18mm;border-width:0 0 2px 2px}
+.br{bottom:12mm;right:9mm;border-width:0 2px 2px 0}
+/* Corpo */
+.body{
+  position:relative;z-index:4;
+  margin:13mm 14mm 11mm 26mm;
+  height:calc(210mm - 24mm);
+  display:flex;flex-direction:column;
+}
+/* Cabeçalho */
+.hdr{
+  display:flex;justify-content:space-between;align-items:flex-start;
+  margin-bottom:4mm;padding-bottom:3mm;
+  border-bottom:1px solid ${accent}22;
+}
+.logo-area{display:flex;align-items:center;gap:3mm}
+.escola-nome{font-size:10pt;font-weight:700;letter-spacing:1.5px;text-transform:uppercase;color:${accent}}
+.escola-sub{font-size:7pt;color:${muted};letter-spacing:0.5px;margin-top:0.5mm}
+.escola-cnpj{font-size:6.5pt;color:${muted};margin-top:0.5mm;font-family:monospace}
+.nr-badge{
+  background:${accent}15;border:1.5px solid ${accent}45;
+  padding:2mm 5mm;border-radius:2mm;
+  font-size:9pt;color:${accent};font-weight:700;letter-spacing:1.5px;text-align:center;
+}
+.nr-label{font-size:6pt;color:${muted};letter-spacing:0.5px;margin-bottom:1mm;text-align:center}
+/* Centro */
+.center{
+  flex:1;display:flex;flex-direction:column;
+  align-items:center;justify-content:center;text-align:center;
+  padding:0 5mm;
+}
+.pre-title{font-size:7.5pt;letter-spacing:5px;text-transform:uppercase;color:${muted};margin-bottom:1mm}
+.main-title{
+  font-family:'Playfair Display',serif;
+  font-size:30pt;letter-spacing:6px;text-transform:uppercase;
+  color:${accent};line-height:1;margin-bottom:0.5mm;
+}
+.sub-title{font-size:7pt;letter-spacing:3px;color:${muted};text-transform:uppercase;margin-bottom:5mm}
+.confere{font-size:9pt;color:${muted};margin-bottom:2mm}
+.nome-aluno{
+  font-family:'Playfair Display',serif;
+  font-size:24pt;font-style:italic;color:${nomeColor};
+  margin-bottom:1mm;display:inline-block;
+}
+.nome-sep{width:80%;height:1.5px;background:${accent}45;margin:2mm auto 0}
+.cpf{font-size:7.5pt;color:${muted};margin-bottom:4mm;letter-spacing:0.5px}
+.curso-intro{font-size:8.5pt;color:${muted};margin-bottom:1.5mm;margin-top:4mm}
+.curso-nome{
+  font-family:'Playfair Display',serif;
+  font-size:15pt;color:${accent};margin-bottom:2mm;font-weight:700;
+}
+.detalhes{font-size:7.5pt;color:${muted};letter-spacing:0.5px}
+.txt-extra{font-size:7pt;color:${muted};margin-top:3mm;font-style:italic;max-width:200mm;line-height:1.6}
+/* Rodapé */
+.footer{
+  display:grid;grid-template-columns:1fr auto 1fr;
+  align-items:end;gap:10mm;
+  padding-top:4mm;border-top:1px solid ${accent}22;
+}
+.dados-emissao{font-size:7pt;color:${muted};line-height:1.8}
+.cod{font-family:monospace;font-size:8.5pt;color:${accent};font-weight:700}
+.qr-area{text-align:center}
+.qr-img{width:22mm;height:22mm;display:block;margin:0 auto;border:1.5px solid ${accent}30;border-radius:2mm;padding:1mm;background:#fff}
+.qr-label{font-size:5.5pt;color:${muted};margin-top:1mm;letter-spacing:0.3px}
+.qr-url{font-size:5pt;color:${accent};margin-top:0.5mm;word-break:break-all;max-width:28mm}
+.assin{text-align:center}
+.assin-linha{width:48mm;height:1px;background:${accent}40;margin:0 auto 2mm}
+.assin-nome{font-size:8.5pt;color:${txtMain};font-weight:600}
+.assin-cargo{font-size:7pt;color:${muted}}
+.assin-escola{font-size:6.5pt;color:${accent};margin-top:0.5mm}
+</style>
 </head>
 <body>
-  <button class="print-btn no-print" onclick="window.print()">🖨️ Imprimir / Salvar PDF</button>
-  <div class="cert">
-    <div class="cert-accent-bar"></div>
-    <div class="cert-accent-bar-r"></div>
-    <div class="cert-bg-dots"></div>
-    <div class="cert-corner tl"></div>
-    <div class="cert-corner tr"></div>
-    <div class="cert-corner bl"></div>
-    <div class="cert-corner br"></div>
-    <div class="cert-body">
-      <!-- Cabeçalho -->
-      <div class="cert-top">
-        <div class="cert-logo-area">
-          ${logoUrl ? `<img src="${logoUrl}" class="cert-logo-img" alt="${nomeEscola}" onerror="this.style.display='none'"/>` : ''}
-          <div>
-            <div class="cert-escola">${nomeEscola}</div>
-            <div class="cert-escola-sub">Escola de Treinamentos Profissionais</div>
-          </div>
+<div class="topbar no-print">
+  <span class="topbar-title">📜 Certificado — ${escHtml(aluno.nome)}</span>
+  <div class="topbar-btns">
+    <button class="btn btn-ghost" onclick="window.close()">✕ Fechar</button>
+    <button class="btn btn-primary" onclick="window.print()">🖨️ Imprimir / Salvar PDF</button>
+  </div>
+</div>
+<div class="wrap">
+<div class="cert">
+  <div class="bar-l"></div>
+  <div class="bar-r"></div>
+  <div class="bar-t"></div>
+  <div class="bar-b"></div>
+  <div class="dots"></div>
+  <div class="wm">Certificado</div>
+  <div class="corner tl"></div>
+  <div class="corner tr"></div>
+  <div class="corner bl"></div>
+  <div class="corner br"></div>
+
+  <div class="body">
+    <!-- CABEÇALHO -->
+    <div class="hdr">
+      <div class="logo-area">
+        ${logoTag}
+        <div>
+          <div class="escola-nome">${escHtml(nomeEscola)}</div>
+          <div class="escola-sub">Escola de Treinamentos Profissionais</div>
+          ${cnpj ? `<div class="escola-cnpj">CNPJ: ${escHtml(cnpj)}</div>` : ''}
+          ${enderecoEscola ? `<div class="escola-cnpj">${escHtml(enderecoEscola)}</div>` : ''}
         </div>
-        ${curso.norma_regulamentadora ? `<div class="cert-nr-badge">${curso.norma_regulamentadora}</div>` : ''}
       </div>
-      <!-- Centro -->
-      <div class="cert-center">
-        <div class="cert-certifica">CERTIFICA QUE</div>
-        <div class="cert-title">Certificado</div>
-        <div class="cert-title-sub">de Conclusão de Curso</div>
-        <div class="cert-confere">O(A) profissional</div>
-        <div class="cert-nome">${aluno.nome}</div>
-        <div class="cert-curso-intro">concluiu com aproveitamento o curso de</div>
-        <div class="cert-curso">${curso.nome}</div>
-        <div class="cert-detalhes">Carga Horária: ${curso.carga_horaria_horas}h &nbsp;·&nbsp; Período: ${periodo}</div>
-        ${textoCert ? `<div class="cert-texto-extra">${textoCert}</div>` : ''}
+      ${curso.norma_regulamentadora ? `<div><div class="nr-label">NORMA</div><div class="nr-badge">${escHtml(curso.norma_regulamentadora)}</div></div>` : ''}
+    </div>
+
+    <!-- CENTRO -->
+    <div class="center">
+      <div class="pre-title">certifica que</div>
+      <div class="main-title">Certificado</div>
+      <div class="sub-title">de Conclusão de Curso</div>
+      <div class="confere">O(A) profissional</div>
+      <div class="nome-aluno">${escHtml(aluno.nome)}</div>
+      <div class="nome-sep"></div>
+      ${aluno.cpf ? `<div class="cpf">CPF: ${escHtml(aluno.cpf)}</div>` : '<div style="margin-bottom:4mm"></div>'}
+      <div class="curso-intro">concluiu com aproveitamento o curso de</div>
+      <div class="curso-nome">${escHtml(curso.nome)}</div>
+      <div class="detalhes">
+        Carga Horária: <strong>${curso.carga_horaria_horas}h</strong>
+        &nbsp;·&nbsp; Período: <strong>${escHtml(periodo)}</strong>
+        ${local ? `&nbsp;·&nbsp; Local: <strong>${escHtml(local)}</strong>` : ''}
+        ${instrutorNome ? `&nbsp;·&nbsp; Instrutor(a): <strong>${escHtml(instrutorNome)}</strong>` : ''}
       </div>
-      <!-- Rodapé -->
-      <div class="cert-footer">
-        <!-- Esquerda: dados -->
-        <div class="cert-codigo-area">
-          <div>Código de Verificação:</div>
-          <div class="cert-codigo">${cert.codigo_verificacao}</div>
-          <div style="margin-top:1mm">Emissão: ${dataEmissao}</div>
-          ${cert.data_validade ? `<div>Válido até: <strong>${dataValidade}</strong></div>` : ''}
-          ${aluno.cpf ? `<div>CPF: ${aluno.cpf}</div>` : ''}
-        </div>
-        <!-- Centro: QR Code -->
-        <div style="text-align:center">
-          <img src="${qrUrl}" class="cert-qr" alt="QR Code" />
-          <div style="font-size:6pt;color:${cores.corMuted};margin-top:1mm">Verificar autenticidade</div>
-        </div>
-        <!-- Direita: assinatura -->
-        <div class="cert-assinatura">
-          <div class="cert-assin-linha"></div>
-          <div class="cert-assin-nome">${assinante}</div>
-          <div class="cert-assin-cargo">${cargoAssinante}</div>
-          <div class="cert-assin-cargo" style="margin-top:1mm">${nomeEscola}</div>
-        </div>
+      ${textoCert ? `<div class="txt-extra">${escHtml(textoCert)}</div>` : ''}
+    </div>
+
+    <!-- RODAPÉ -->
+    <div class="footer">
+      <div class="dados-emissao">
+        <div>Código de Verificação:</div>
+        <div class="cod">${escHtml(cert.codigo_verificacao)}</div>
+        <div style="margin-top:1mm">Emitido em: <strong>${dataEmissao}</strong></div>
+        ${dataValidade ? `<div>Válido até: <strong>${dataValidade}</strong></div>` : '<div>Sem data de validade</div>'}
+      </div>
+
+      <div class="qr-area">
+        <img src="${escHtml(qrUrl)}" class="qr-img" alt="QR Code de autenticidade"/>
+        <div class="qr-label">Verificar autenticidade</div>
+        <div class="qr-url">${escHtml(urlCompleta)}</div>
+      </div>
+
+      <div class="assin">
+        <div class="assin-linha"></div>
+        <div class="assin-nome">${escHtml(assinante)}</div>
+        <div class="assin-cargo">${escHtml(cargoAssinante)}</div>
+        <div class="assin-escola">${escHtml(nomeEscola)}</div>
       </div>
     </div>
   </div>
+</div>
+</div>
 </body>
 </html>`;
 }
 
-// ── Enviar WhatsApp sobre certificado ─────────────────────
+// ── Enviar WhatsApp sobre certificado ────────────────────────────────────────
 async function enviarWhatsAppCert(matriculaId, numero) {
-  const { data: cert } = await supabase.from('certificados')
+  const { data: cert } = await supabase
+    .from('certificados')
     .select('*, alunos(nome,whatsapp,telefone), cursos(nome)')
-    .eq('matricula_id', matriculaId).single();
-  if (!cert) return;
+    .eq('matricula_id', matriculaId)
+    .single();
+
+  if (!cert) { mostrarToast('Certificado não encontrado.', 'error'); return; }
 
   const [nomeEscola, urlVerificacao] = await Promise.all([
     getConfig('nome_escola', 'TrainOS'),
@@ -322,11 +468,15 @@ async function enviarWhatsAppCert(matriculaId, numero) {
   const hoje = new Date();
   const vencido = cert.data_validade && new Date(cert.data_validade) < hoje;
   const diasRestantes = cert.data_validade ? Math.floor((new Date(cert.data_validade) - hoje) / 86400000) : null;
-  const tipoTemplate = vencido ? 'certificado_vencido' : diasRestantes !== null && diasRestantes < 60 ? 'certificado_a_vencer' : 'certificado_emitido';
+  const tipoTemplate = vencido
+    ? 'certificado_vencido'
+    : diasRestantes !== null && diasRestantes < 60
+      ? 'certificado_a_vencer'
+      : 'certificado_emitido';
 
   const dados = {
-    nomeAluno: cert.alunos.nome,
-    nomeCurso: cert.cursos.nome,
+    nomeAluno: cert.alunos?.nome || '',
+    nomeCurso: cert.cursos?.nome || '',
     dataValidade: cert.data_validade ? fmtData(cert.data_validade) : null,
     diasRestantes,
     codigoVerificacao: cert.codigo_verificacao,
@@ -336,11 +486,4 @@ async function enviarWhatsAppCert(matriculaId, numero) {
 
   const telefone = numero || cert.alunos?.whatsapp || cert.alunos?.telefone || '';
   abrirModalWhatsApp(tipoTemplate, dados, telefone);
-}
-
-function hexToRgb(hex) {
-  const r = parseInt(hex.slice(1,3),16);
-  const g = parseInt(hex.slice(3,5),16);
-  const b = parseInt(hex.slice(5,7),16);
-  return `${r},${g},${b}`;
 }

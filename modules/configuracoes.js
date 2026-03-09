@@ -22,8 +22,15 @@ export async function renderConfiguracoes() {
           <div class="form-group"><label>Telefone</label><input id="cfg-telefone" placeholder="(11) 99999-9999"/></div>
           <div class="form-group"><label>E-mail</label><input type="email" id="cfg-email"/></div>
           <div class="form-group full"><label>Site</label><input type="url" id="cfg-site" placeholder="https://"/></div>
-          <div class="form-group full"><label>URL do Logotipo</label>
+          <div class="form-group full"><label>Logotipo da Escola</label>
             <input id="cfg-logo-url" placeholder="https://seusite.com/logo.png"/>
+            <div style="margin-top:8px;display:flex;gap:8px;align-items:center">
+              <label for="cfg-logo-upload" class="btn btn-sm btn-secondary" style="cursor:pointer;display:inline-flex;align-items:center;gap:4px">
+                <span class="material-symbols-rounded" style="font-size:14px">upload</span> Enviar Arquivo
+              </label>
+              <input type="file" id="cfg-logo-upload" accept="image/*" style="display:none"/>
+              <span style="font-size:11px;color:var(--text-tertiary)">PNG, SVG, JPG recomendados</span>
+            </div>
             <div id="logo-preview" style="margin-top:8px;min-height:40px"></div>
           </div>
         </div>
@@ -214,6 +221,20 @@ function configurarEventosTema() {
   secHex.addEventListener('input', () => { if (/^#[0-9a-f]{6}$/i.test(secHex.value)) secPick.value = secHex.value; });
   raio.addEventListener('input', () => { document.querySelector('#raio-label').textContent = raio.value + 'px'; previewTema(); });
   document.querySelector('#cfg-logo-url').addEventListener('blur', e => atualizarPreviewLogo(e.target.value));
+
+  // Upload de arquivo de logo → converte para base64 / data URL
+  document.querySelector('#cfg-logo-upload').addEventListener('change', e => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    if (file.size > 500 * 1024) { mostrarToast('Logo muito grande. Use uma imagem menor que 500KB.', 'warning'); return; }
+    const reader = new FileReader();
+    reader.onload = ev => {
+      const dataUrl = ev.target.result;
+      document.querySelector('#cfg-logo-url').value = dataUrl;
+      atualizarPreviewLogo(dataUrl);
+    };
+    reader.readAsDataURL(file);
+  });
 }
 
 function previewTema() {

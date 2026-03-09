@@ -168,3 +168,13 @@ CREATE INDEX IF NOT EXISTS idx_config_chave ON configuracoes(chave);
 CREATE INDEX IF NOT EXISTS idx_lista_espera_turma ON lista_espera_turmas(turma_id);
 CREATE INDEX IF NOT EXISTS idx_pgto_pai ON pagamentos(pagamento_pai_id);
 CREATE INDEX IF NOT EXISTS idx_pgto_vencimento_status ON pagamentos(data_vencimento, status);
+
+-- ── 9. CONFIGS DE TEMA E LOGO (white-label) ────────────────
+-- Execute este bloco se ainda não tiver as chaves de tema/logo no banco
+INSERT INTO configuracoes (chave, valor, descricao) VALUES
+  ('logo_url',     '',         'URL ou base64 do logotipo da escola'),
+  ('cor_primaria', '#00d4ff',  'Cor primária (accent) do tema'),
+  ('cor_secundaria','#7c3aed', 'Cor secundária do tema'),
+  ('modo_tema',    'dark',     'Modo do tema: dark ou light'),
+  ('raio_borda',   '8',        'Raio de borda em pixels')
+ON CONFLICT (chave) DO NOTHING;

@@ -1185,3 +1185,107 @@ textarea { resize: vertical; min-height: 80px; }
   color: var(--accent);
   cursor: copy;
 }
+
+/* ============================================================
+   TRAINOS v2 — ESTILOS ADICIONAIS
+   ============================================================ */
+
+/* ── Skeleton loader ───────────────────────────────────────── */
+.skeleton {
+  background: linear-gradient(90deg, var(--bg-overlay) 25%, var(--bg-elevated) 50%, var(--bg-overlay) 75%);
+  background-size: 200% 100%;
+  animation: skeleton-wave 1.4s ease infinite;
+  border-radius: 4px;
+}
+.skeleton-text { height: 14px; margin: 6px 0; }
+@keyframes skeleton-wave { 0% { background-position: 200% 0; } 100% { background-position: -200% 0; } }
+
+/* ── Abas (tabs) ───────────────────────────────────────────── */
+.tabs { display: flex; gap: 4px; }
+.tab-btn {
+  padding: 10px 16px;
+  background: none;
+  border: none;
+  border-bottom: 2px solid transparent;
+  color: var(--text-secondary);
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+.tab-btn:hover { color: var(--text-primary); }
+.tab-btn.active { color: var(--accent); border-bottom-color: var(--accent); }
+
+/* ── Stat card link ────────────────────────────────────────── */
+.stat-card-link { cursor: pointer; transition: transform 0.15s, box-shadow 0.15s; }
+.stat-card-link:hover { transform: translateY(-2px); box-shadow: 0 4px 20px rgba(0,212,255,0.15); }
+
+/* ── Stat sub ──────────────────────────────────────────────── */
+.stat-sub { font-size: 11px; color: var(--text-tertiary); margin-top: 2px; }
+
+/* ── Alert info ────────────────────────────────────────────── */
+.alert-info {
+  background: rgba(0, 212, 255, 0.08);
+  border: 1px solid rgba(0, 212, 255, 0.3);
+  border-radius: var(--radius-md);
+  padding: 12px 14px;
+  color: var(--text-secondary);
+}
+
+/* ── Modal extra-large ─────────────────────────────────────── */
+.modal { max-height: 90vh; overflow-y: auto; }
+
+/* ── Pipeline drag indicator (para futura implementação SortableJS) ── */
+.pipeline-card.sortable-ghost { opacity: 0.4; }
+.pipeline-card.sortable-drag  { transform: rotate(2deg); box-shadow: 0 8px 30px rgba(0,0,0,0.4); }
+
+/* ── Inadimplência badge ───────────────────────────────────── */
+.badge-danger  { background: rgba(248, 81, 73, 0.2); color: #f85149; }
+.badge-critico { background: rgba(248, 81, 73, 0.2); color: #f85149; }
+
+/* ── Chart barras melhoradas (sem altura 100% no filho) ────── */
+.chart-bars {
+  display: flex;
+  align-items: flex-end;
+  gap: 8px;
+  height: 140px;
+  padding: 12px 0 0;
+}
+.chart-bar-group { display: flex; flex-direction: column; align-items: center; flex: 1; min-width: 0; }
+.chart-bar-wrap  { display: flex; flex-direction: column; align-items: center; flex: 1; width: 100%; justify-content: flex-end; }
+.chart-bar-value { font-size: 10px; color: var(--text-tertiary); margin-bottom: 4px; white-space: nowrap; font-family: var(--font-mono); }
+.chart-bar       { width: 100%; background: var(--accent); border-radius: 3px 3px 0 0; min-height: 4px; position: relative; transition: height 0.5s ease; }
+.chart-bar-label { font-size: 10px; color: var(--text-tertiary); margin-top: 6px; white-space: nowrap; }
+
+/* ── Print styles para lista de turma ─────────────────────── */
+@media print {
+  .sidebar, .topbar, .modal-footer, .btn-icon, .btn { display: none !important; }
+  .modal-backdrop { position: static !important; background: none !important; }
+  .modal { box-shadow: none !important; max-height: none !important; }
+}
+
+/* ── Ficha do aluno ────────────────────────────────────────── */
+.modal-body .form-group { margin-bottom: 0; }
+
+/* ── Configurações ─────────────────────────────────────────── */
+#card-escola .form-grid, #card-cert .form-grid { gap: 12px; }
+
+/* ── Error state melhorado ─────────────────────────────────── */
+.error-state {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  min-height: 300px;
+  gap: 12px;
+  color: var(--text-secondary);
+}
+.error-state .material-symbols-rounded { font-size: 48px; color: var(--danger); }
+
+/* ── Botão danger ──────────────────────────────────────────── */
+.btn-danger {
+  background: var(--danger);
+  color: white;
+  border: none;
+}
+.btn-danger:hover { background: #c0392b; }

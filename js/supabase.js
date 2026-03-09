@@ -1,187 +1,94 @@
 // ============================================================
-// supabase.js — Inicialização e cliente Supabase
-// Importação via ES Modules (CDN esm.sh)
+// supabase.js — Cliente Supabase com melhorias de segurança
 // ============================================================
-
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
 
-// ⚠️ Substitua pelas suas credenciais do projeto Supabase
-// Dashboard → Project Settings → API
-const SUPABASE_URL = 'https://wsfawjiqkeoilcjsehpp.supabase.co';
-const SUPABASE_ANON_KEY = 'sb_publishable_Gp0BJ5frZua339ZuJtiCag_XSbHtgVH';
+const STORAGE_URL_KEY = 'trainos_supabase_url';
+const STORAGE_KEY_KEY = 'trainos_supabase_key';
 
-// Singleton do cliente
-export const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
-  auth: {
-    autoRefreshToken: true,
-    persistSession: true,
-    detectSessionInUrl: true,
-  },
+export const isConfigured = () =>
+  !!(localStorage.getItem(STORAGE_URL_KEY) && localStorage.getItem(STORAGE_KEY_KEY));
+
+let _supabase = null;
+
+function _init(url, key) {
+  return createClient(url, key, {
+    auth: { autoRefreshToken: true, persistSession: true, detectSessionInUrl: true },
+  });
+}
+
+function getClient() {
+  if (_supabase) return _supabase;
+  const url = localStorage.getItem(STORAGE_URL_KEY);
+  const key = localStorage.getItem(STORAGE_KEY_KEY);
+  if (url && key) _supabase = _init(url, key);
+  return _supabase;
+}
+
+export const supabase = new Proxy({}, {
+  get(_, prop) {
+    const c = getClient();
+    if (!c) throw new Error('Supabase não configurado.');
+    const v = c[prop];
+    return typeof v === 'function' ? v.bind(c) : v;
+  }
 });
 
-// ============================================================
-// AUTH HELPERS
-// ============================================================
+export function reinitClient(url, key) {
+  localStorage.setItem(STORAGE_URL_KEY, url.trim());
+  localStorage.setItem(STORAGE_KEY_KEY, key.trim());
+  _supabase = _init(url.trim(), key.trim());
+}
 
-/**
- * Retorna o usuário autenticado e o perfil completo.
- * Deve ser chamado no bootstrap do app.
- */
+export function limparCredenciais() {
+  localStorage.removeItem(STORAGE_URL_KEY);
+  localStorage.removeItem(STORAGE_KEY_KEY);
+  _supabase = null;
+}
+
 export async function getSessionUser() {
-  const { data: { session }, error } = await supabase.auth.getSession();
-  if (error || !session) return null;
-
-  const { data: perfil } = await supabase
-    .from('perfis')
-    .select('*')
-    .eq('id', session.user.id)
-    .single();
-
-  return { user: session.user, perfil };
+  try {
+    const c = getClient();
+    if (!c) return null;
+    const { data: { session } } = await c.auth.getSession();
+    if (!session) return null;
+    const { data: perfil } = await c.from('perfis').select('*').eq('id', session.user.id).single();
+    return { user: session.user, perfil };
+  } catch { return null; }
 }
 
-/**
- * Login com email e senha
- */
 export async function login(email, senha) {
-  const { data, error } = await supabase.auth.signInWithPassword({ email, password: senha });
+  const { data, error } = await getClient().auth.signInWithPassword({ email, password: senha });
   if (error) throw error;
   return data;
 }
 
-/**
- * Logout
- */
 export async function logout() {
-  const { error } = await supabase.auth.signOut();
-  if (error) throw error;
+  await getClient().auth.signOut();
 }
 
-/**
- * Listener de mudança de sessão
- * callback(event, session) — event: 'SIGNED_IN' | 'SIGNED_OUT' | 'TOKEN_REFRESHED'
- */
 export function onAuthChange(callback) {
-  return supabase.auth.onAuthStateChange(callback);
+  const c = getClient();
+  if (!c) return;
+  return c.auth.onAuthStateChange((event, session) => callback(event, session));
 }
 
-// ============================================================
-// QUERY HELPERS GENÉRICOS
-// ============================================================
+let _configCache = null;
 
-/**
- * Busca com paginação e filtros opcionais.
- * @param {string} tabela - Nome da tabela/view
- * @param {Object} opts - { select, filters, order, page, pageSize }
- */
-export async function buscar(tabela, opts = {}) {
-  const {
-    select = '*',
-    filters = {},
-    order = { coluna: 'criado_em', desc: true },
-    page = 1,
-    pageSize = 50,
-  } = opts;
-
-  const from = (page - 1) * pageSize;
-  const to = from + pageSize - 1;
-
-  let query = supabase
-    .from(tabela)
-    .select(select, { count: 'exact' })
-    .range(from, to);
-
-  // Aplicar filtros: { campo: valor } ou { campo: { op: 'ilike', valor: '%texto%' } }
-  for (const [campo, valor] of Object.entries(filters)) {
-    if (valor === null || valor === undefined || valor === '') continue;
-    if (typeof valor === 'object' && valor.op) {
-      query = query[valor.op](campo, valor.valor);
-    } else {
-      query = query.eq(campo, valor);
-    }
+export async function getConfig(chave, fallback = null) {
+  if (!_configCache) {
+    try {
+      const { data } = await getClient().from('configuracoes').select('chave,valor');
+      _configCache = {};
+      (data || []).forEach(c => { _configCache[c.chave] = c.valor; });
+    } catch { _configCache = {}; }
   }
-
-  if (order) {
-    query = query.order(order.coluna, { ascending: !order.desc });
-  }
-
-  const { data, error, count } = await query;
-  if (error) throw error;
-  return { data, count, page, pageSize, totalPages: Math.ceil(count / pageSize) };
+  return _configCache?.[chave] ?? fallback;
 }
 
-/**
- * Busca um único registro por ID
- */
-export async function buscarPorId(tabela, id, select = '*') {
-  const { data, error } = await supabase
-    .from(tabela)
-    .select(select)
-    .eq('id', id)
-    .single();
-  if (error) throw error;
-  return data;
-}
+export function limparCacheConfig() { _configCache = null; }
 
-/**
- * Inserir um ou múltiplos registros
- */
-export async function inserir(tabela, dados) {
-  const { data, error } = await supabase
-    .from(tabela)
-    .insert(dados)
-    .select()
-    .single();
-  if (error) throw error;
-  return data;
-}
-
-/**
- * Atualizar registro por ID
- */
-export async function atualizar(tabela, id, dados) {
-  const { data, error } = await supabase
-    .from(tabela)
-    .update(dados)
-    .eq('id', id)
-    .select()
-    .single();
-  if (error) throw error;
-  return data;
-}
-
-/**
- * Deletar registro por ID (soft delete via campo 'ativo' quando disponível)
- */
-export async function deletar(tabela, id, softDelete = true) {
-  if (softDelete) {
-    return atualizar(tabela, id, { ativo: false });
-  }
-  const { error } = await supabase.from(tabela).delete().eq('id', id);
-  if (error) throw error;
-}
-
-// ============================================================
-// REALTIME
-// ============================================================
-
-/**
- * Subscrever mudanças em tempo real de uma tabela
- * @returns {Function} unsubscribe function
- */
-export function subscrever(tabela, callback, filtro = null) {
-  let channel = supabase.channel(`realtime-${tabela}`);
-
-  const config = {
-    event: '*',
-    schema: 'public',
-    table: tabela,
-  };
-
-  if (filtro) config.filter = filtro;
-
-  channel = channel.on('postgres_changes', config, callback);
-  channel.subscribe();
-
-  return () => supabase.removeChannel(channel);
+export async function setConfig(chave, valor) {
+  await getClient().from('configuracoes').upsert({ chave, valor }, { onConflict: 'chave' });
+  limparCacheConfig();
 }

@@ -116,7 +116,7 @@ async function carregar() {
   const from = (state.pagina - 1) * PAGE_SIZE;
   let q = supabase.from('vw_alertas_renovacao').select('*', { count: 'exact' }).order('data_validade').range(from, from + PAGE_SIZE - 1);
   if (state.filtroNivel) q = q.eq('nivel_alerta', state.filtroNivel);
-  if (state.filtroCurso) q = q.eq('curso_nome', state.cursos.find(c => c.id === state.filtroCurso)?.nome);
+  if (state.filtroCurso) q = q.eq('curso_id', state.filtroCurso);
   if (state.busca) q = q.or(`aluno_nome.ilike.%${state.busca}%,empresa_nome.ilike.%${state.busca}%`);
   const { data, error, count } = await q;
   if (error) { mostrarToast('Erro', 'error'); return; }

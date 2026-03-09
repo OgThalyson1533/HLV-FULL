@@ -1289,3 +1289,10 @@ textarea { resize: vertical; min-height: 80px; }
   border: none;
 }
 .btn-danger:hover { background: #c0392b; }
+
+/* ── CEP spinner ─────────────────────────────────────────── */
+@keyframes spin { from { transform: translateY(-50%) rotate(0deg); } to { transform: translateY(-50%) rotate(360deg); } }
+.cep-spinner { display:inline-block; }
+
+/* ── Tema dinâmico — paletas ─────────────────────────────── */
+.paleta-btn:hover { border-color: var(--accent) !important; color: var(--text-primary) !important; }

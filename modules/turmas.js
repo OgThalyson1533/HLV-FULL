@@ -177,8 +177,7 @@ async function abrirListaAlunos(turmaId) {
   });
 
   // Exportar CSV
-  backdrop.querySelector('#btn-export-lista')?.addEventListener('click', () => {
-    const { exportarCSV } = await import('../js/utils.js').catch(() => ({}));
+  backdrop.querySelector('#btn-export-lista')?.addEventListener('click', async () => {
     if (!matriculas?.length) return;
     const rows = [['#','Nome','CPF','Contato','Status','Nota','Frequência%']];
     matriculas.forEach((m, i) => rows.push([i+1, m.alunos?.nome, m.alunos?.cpf, m.alunos?.whatsapp||m.alunos?.telefone, m.status, m.nota_final, m.frequencia_percent]));

@@ -231,6 +231,9 @@ function abrirModal(aluno = null) {
       </select></div>
       <div class="form-group"><label>Empresa</label><select id="a-empresa"><option value="">— nenhuma —</option>${emp}</select></div>
       <div class="form-group"><label>Cargo</label><input id="a-cargo" value="${escapeHtml(v.cargo||'')}"/></div>
+      <div class="form-group"><label>CEP <span style="font-size:10px;color:var(--accent)">(preenchimento automático)</span></label><input id="a-cep" value="${escapeHtml(v.cep||'')}" placeholder="00000-000" maxlength="9"/></div>
+      <div class="form-group full"><label>Endereço</label><input id="a-endereco" value="${escapeHtml(v.endereco||'')}" placeholder="Rua, número"/></div>
+      <div class="form-group"><label>Bairro</label><input id="a-bairro" value="${escapeHtml(v.bairro||'')}"/></div>
       <div class="form-group"><label>Cidade</label><input id="a-cidade" value="${escapeHtml(v.cidade||'')}"/></div>
       <div class="form-group"><label>Estado</label><input id="a-estado" value="${escapeHtml(v.estado||'')}" maxlength="2"/></div>
       <div class="form-group full"><label>Observações</label><textarea id="a-obs">${escapeHtml(v.observacoes||'')}</textarea></div>
@@ -240,6 +243,13 @@ function abrirModal(aluno = null) {
       <button class="btn btn-primary" id="salvar-aluno"><span class="material-symbols-rounded">save</span> Salvar</button>
     </div></div>`;
   document.body.appendChild(backdrop);
+  // Vincular busca automática de CEP
+  import('../js/cep.js').then(({ vincularCEP }) => vincularCEP(backdrop.querySelector('#a-cep'), {
+    logradouro: backdrop.querySelector('#a-endereco'),
+    bairro:     backdrop.querySelector('#a-bairro'),
+    cidade:     backdrop.querySelector('#a-cidade'),
+    estado:     backdrop.querySelector('#a-estado'),
+  }));
   const fechar = () => backdrop.remove();
   backdrop.querySelector('#fc-a').addEventListener('click', fechar);
   backdrop.querySelector('#fc-a2').addEventListener('click', fechar);
@@ -282,4 +292,15 @@ async function deletarAluno(id, nome) {
     await supabase.from('alunos').update({ ativo: false }).eq('id', id);
     mostrarToast('Aluno desativado', 'success'); carregar(); carregarStats();
   } catch (e) { mostrarToast(traduzirErro(e), 'error'); }
+}
+
+// ── CEP (injetado no modal após criação) ───────────────────
+async function _vincularCEPAluno() {
+  const { vincularCEP } = await import('../js/cep.js');
+  vincularCEP('#a-cep', {
+    logradouro: '#a-endereco',
+    cidade:     '#a-cidade',
+    estado:     '#a-estado',
+    bairro:     '#a-bairro',
+  });
 }

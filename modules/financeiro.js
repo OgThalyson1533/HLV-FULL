@@ -134,6 +134,7 @@ function renderTabela(rows) {
       <td><span class="badge ${statusCorFin[p.status] || 'badge-neutral'}">${p.status}</span></td>
       <td><div class="flex gap-2">
         ${p.status === 'pendente' || p.status === 'atraso' ? `<button class="btn btn-sm btn-secondary" onclick="window._confirmarPgto('${p.id}')"><span class="material-symbols-rounded" style="font-size:14px">check</span> Receber</button>` : ''}
+        ${(p.status === 'pendente' || p.status === 'atraso') && p.aluno_id ? `<button class="btn-icon" title="Cobrança WhatsApp" onclick="window._wppCobranca('${p.id}')"><svg width="15" height="15" viewBox="0 0 24 24" fill="#25d366"><path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347m-5.421 7.403h-.004a9.87 9.87 0 01-5.031-1.378l-.361-.214-3.741.982.998-3.648-.235-.374a9.86 9.86 0 01-1.51-5.26c.001-5.45 4.436-9.884 9.888-9.884 2.64 0 5.122 1.03 6.988 2.898a9.825 9.825 0 012.893 6.994c-.003 5.45-4.437 9.884-9.885 9.884m8.413-18.297A11.815 11.815 0 0012.05 0C5.495 0 .16 5.335.157 11.892c0 2.096.547 4.142 1.588 5.945L.057 24l6.305-1.654a11.882 11.882 0 005.683 1.448h.005c6.554 0 11.89-5.335 11.893-11.893a11.821 11.821 0 00-3.48-8.413z"/></svg></button>` : ''}
         <button class="btn-icon" onclick="window._editPgto('${p.id}')"><span class="material-symbols-rounded">edit</span></button>
         ${p.numero_recibo ? `<button class="btn-icon" title="Ver Recibo" onclick="window._verRecibo('${p.id}')"><span class="material-symbols-rounded">receipt</span></button>` : ''}
       </div></td>
@@ -266,3 +267,34 @@ async function abrirModal(p = null, modoReceber = false) {
 
 const fmtData = d => d ? new Date(d.includes('T') ? d : d + 'T00:00:00').toLocaleDateString('pt-BR') : '—';
 function debounce(fn, ms) { let t; return (...a) => { clearTimeout(t); t = setTimeout(() => fn(...a), ms); }; }
+
+// ── WhatsApp Cobrança ──────────────────────────────────────
+window._wppCobranca = async id => {
+  const { data: p } = await supabase.from('pagamentos')
+    .select('*, alunos(nome,whatsapp,telefone), matriculas(*, cursos(nome)), empresas(nome_fantasia,responsavel_telefone,responsavel_nome)')
+    .eq('id', id).single();
+  if (!p) return;
+
+  const { abrirModalWhatsApp } = await import('../js/whatsapp.js');
+  const { getConfig } = await import('../js/supabase.js');
+  const nomeEscola = await getConfig('nome_escola', 'TrainOS');
+  const venc = p.data_vencimento ? new Date(p.data_vencimento).toLocaleDateString('pt-BR') : '—';
+  const valor = Number(p.valor_cobrado).toLocaleString('pt-BR', { minimumFractionDigits: 2 });
+
+  if (p.empresa_id && p.empresas) {
+    abrirModalWhatsApp('cobranca_empresa', {
+      nomeResponsavel: p.empresas.responsavel_nome || p.empresas.nome_fantasia,
+      nomeEmpresa: p.empresas.nome_fantasia,
+      qtdAlunos: '—',
+      valor, dataVencimento: venc,
+      numeroRecibo: p.numero_recibo || '—', nomeEscola,
+    }, p.empresas.responsavel_telefone || '');
+  } else {
+    abrirModalWhatsApp('cobranca_aluno', {
+      nomeAluno: p.alunos?.nome || '—',
+      nomeCurso: p.matriculas?.cursos?.nome || '—',
+      valor, dataVencimento: venc,
+      numeroRecibo: p.numero_recibo || '—', nomeEscola,
+    }, p.alunos?.whatsapp || p.alunos?.telefone || '');
+  }
+};

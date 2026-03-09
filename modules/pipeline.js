@@ -135,11 +135,28 @@ window._avancarStatus = async (matriculaId, novoStatus) => {
   }).eq('id', matriculaId);
   if (error) { mostrarToast('Erro ao atualizar status', 'error'); return; }
   mostrarToast('Status atualizado!', 'success');
+
+  // Notificar via WhatsApp se aprovado ou reprovado
+  if (novoStatus === 'concluido' || novoStatus === 'reprovado') {
+    const { data: mat } = await supabase.from('matriculas').select('*, alunos(nome,whatsapp,telefone), cursos(nome)').eq('id', matriculaId).single();
+    if (mat?.alunos?.whatsapp || mat?.alunos?.telefone) {
+      const { abrirModalWhatsApp } = await import('../js/whatsapp.js');
+      const { getConfig } = await import('../js/supabase.js');
+      const nomeEscola = await getConfig('nome_escola', 'TrainOS');
+      abrirModalWhatsApp(novoStatus === 'concluido' ? 'aluno_aprovado' : 'aluno_reprovado', {
+        nomeAluno: mat.alunos.nome,
+        nomeCurso: mat.cursos.nome,
+        nota: mat.nota_final,
+        frequencia: mat.frequencia_percent,
+        nomeEscola,
+      }, mat.alunos.whatsapp || mat.alunos.telefone);
+    }
+  }
   await carregarDados();
 };
 
 window._emitirCert = async matriculaId => {
-  const { data: mat } = await supabase.from('matriculas').select('*, alunos(nome), cursos(nome,carga_horaria_horas), turmas(instrutor_id, instrutores(nome))').eq('id', matriculaId).single();
+  const { data: mat } = await supabase.from('matriculas').select('*, alunos(nome,whatsapp,telefone), cursos(nome,carga_horaria_horas), turmas(instrutor_id, instrutores(nome))').eq('id', matriculaId).single();
   if (!mat) return;
   const { error } = await supabase.from('certificados').insert({
     matricula_id: matriculaId, aluno_id: mat.aluno_id, curso_id: mat.curso_id,
@@ -149,6 +166,20 @@ window._emitirCert = async matriculaId => {
   if (error) { mostrarToast('Erro ao emitir certificado: ' + error.message, 'error'); return; }
   await supabase.from('matriculas').update({ status: 'certificado_emitido' }).eq('id', matriculaId);
   mostrarToast('Certificado emitido!', 'success');
+
+  // Notificar via WhatsApp
+  if (mat.alunos?.whatsapp || mat.alunos?.telefone) {
+    const { abrirModalWhatsApp } = await import('../js/whatsapp.js');
+    const { getConfig } = await import('../js/supabase.js');
+    const nomeEscola = await getConfig('nome_escola', 'TrainOS');
+    const { data: cert } = await supabase.from('certificados').select('codigo_verificacao,data_validade').eq('matricula_id', matriculaId).single();
+    abrirModalWhatsApp('certificado_emitido', {
+      nomeAluno: mat.alunos.nome, nomeCurso: mat.cursos.nome,
+      codigoVerificacao: cert?.codigo_verificacao || '—',
+      dataValidade: cert?.data_validade ? new Date(cert.data_validade).toLocaleDateString('pt-BR') : null,
+      nomeEscola, urlVerificacao: '',
+    }, mat.alunos.whatsapp || mat.alunos.telefone);
+  }
   await carregarDados();
 };
 

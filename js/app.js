@@ -1,6 +1,7 @@
 // app.js v2.0 — sem window.*, event delegation, segurança melhorada
 import { supabase, getSessionUser, onAuthChange, logout, isConfigured, reinitClient, limparCredenciais, getConfig } from './supabase.js';
 import { escapeHtml } from './utils.js';
+import { aplicarTema } from './theme.js';
 
 export { supabase };
 export const AppState = { usuario: null, modulo: null };
@@ -68,6 +69,14 @@ async function init() {
   const sessao = await getSessionUser();
   if (!sessao) { renderLogin(); return; }
   AppState.usuario = sessao;
+  // Carregar tema salvo nas configurações
+  try {
+    const [cor, sec, modo, raio] = await Promise.all([
+      getConfig('cor_primaria', ''), getConfig('cor_secundaria', ''),
+      getConfig('modo_tema', ''), getConfig('raio_borda', ''),
+    ]);
+    if (cor) aplicarTema({ cor_primaria: cor, cor_secundaria: sec || undefined, modo: modo || tema || 'dark', raio_borda: raio || '8' });
+  } catch {}
   if (sessao.perfil?.perfil === 'aluno') {
     try { await supabase.rpc('promover_usuario_admin', { user_id: sessao.user.id }); }
     catch {}

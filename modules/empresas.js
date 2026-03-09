@@ -92,10 +92,11 @@ function abrirModal(emp = null) {
       <div class="form-group"><label>Responsável</label><input id="e-resp" value="${v.responsavel_nome || ''}" /></div>
       <div class="form-group"><label>Tel. Responsável</label><input id="e-rtel" value="${v.responsavel_telefone || ''}" /></div>
       <div class="form-group"><label>E-mail Responsável</label><input id="e-remail" value="${v.responsavel_email || ''}" /></div>
-      <div class="form-group full"><label>Endereço</label><input id="e-end" value="${v.endereco || ''}" /></div>
+      <div class="form-group"><label>CEP <span style="font-size:10px;color:var(--accent)">(preenchimento automático)</span></label><input id="e-cep" value="${v.cep || ''}" placeholder="00000-000" maxlength="9"/></div>
+      <div class="form-group full"><label>Endereço</label><input id="e-end" value="${v.endereco || ''}" placeholder="Rua, número"/></div>
+      <div class="form-group"><label>Bairro</label><input id="e-bairro" value="${v.bairro || ''}"/></div>
       <div class="form-group"><label>Cidade</label><input id="e-cidade" value="${v.cidade || ''}" /></div>
       <div class="form-group"><label>Estado</label><input id="e-estado" value="${v.estado || ''}" maxlength="2" /></div>
-      <div class="form-group"><label>CEP</label><input id="e-cep" value="${v.cep || ''}" /></div>
       <div class="form-group full"><label>Observações</label><textarea id="e-obs">${v.observacoes || ''}</textarea></div>
     </div></div>
     <div class="modal-footer">
@@ -103,6 +104,13 @@ function abrirModal(emp = null) {
       <button class="btn btn-primary" id="salvar-emp"><span class="material-symbols-rounded">save</span> Salvar</button>
     </div></div>`;
   document.body.appendChild(backdrop);
+  // CEP auto-preenchimento
+  import('../js/cep.js').then(({ vincularCEP }) => vincularCEP(backdrop.querySelector('#e-cep'), {
+    logradouro: backdrop.querySelector('#e-end'),
+    bairro:     backdrop.querySelector('#e-bairro'),
+    cidade:     backdrop.querySelector('#e-cidade'),
+    estado:     backdrop.querySelector('#e-estado'),
+  }));
   const fechar = () => backdrop.remove();
   document.getElementById('fc-emp').onclick = fechar;
   document.getElementById('fc-emp2').onclick = fechar;
